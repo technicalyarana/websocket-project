@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>ESP32 Pin #2 Control</title>
+    <style>
+      /* बेसिक बॉडी स्टाइल */
+      body {
+        margin: 0;
+        padding: 0;
+        font-family: Arial, sans-serif;
+        background-color: #f0f0f0;
+      }
+
+      /* एक कंटेनर जिसे हम थोड़ा सेंटर में रखेंगे */
+      .container {
+        max-width: 400px;
+        margin: 50px auto;
+        background: #ffffff;
+        border-radius: 10px;
+        padding: 30px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        text-align: center;
+      }
+
+      h1 {
+        margin-top: 0;
+        margin-bottom: 20px;
+      }
+
+      /* कस्टम टॉगल स्विच */
+      .toggle-switch {
+        position: relative;
+        display: inline-block;
+        width: 60px;
+        height: 34px;
+        margin-bottom: 20px;
+      }
+
+      /* हटा रहे हैं डिफ़ॉल्ट चेकबॉक्स */
+      .toggle-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+      }
+
+      /* स्लाइडर */
+      .slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #ccc;
+        transition: 0.4s;
+        border-radius: 34px;
+      }
+
+      .slider:before {
+        position: absolute;
+        content: "";
+        height: 26px;
+        width: 26px;
+        left: 4px;
+        bottom: 4px;
+        background-color: white;
+        transition: 0.4s;
+        border-radius: 50%;
+      }
+
+      /* जब इनपुट चेक होगा, तब स्लाइडर का बैकग्राउंड */
+      input:checked + .slider {
+        background-color: #2196F3;
+      }
+
+      /* जब फ़ोकस में होगा */
+      input:focus + .slider {
+        box-shadow: 0 0 1px #2196F3;
+      }
+
+      /* स्लाइडर की position */
+      input:checked + .slider:before {
+        transform: translateX(26px);
+      }
+
+      /* मैसेज */
+      #message {
+        margin-top: 20px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <h1>Toggle ESP32 Pin #2</h1>
+
+      <!-- कस्टम टॉगल स्विच -->
+      <label class="toggle-switch">
+        <input type="checkbox" id="toggleSwitch" />
+        <span class="slider"></span>
+      </label>
+
+      <div id="message"></div>
+    </div>
+
+    <script>
+      const toggleSwitch = document.getElementById('toggleSwitch');
+      const messageDiv = document.getElementById('message');
+
+      toggleSwitch.addEventListener('change', async () => {
+        const state = toggleSwitch.checked ? 'ON' : 'OFF';
+        try {
+          const response = await fetch('/api/pin2', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ state }),
+          });
+
+          const data = await response.json();
+          if (data.success) {
+            messageDiv.innerText = `Pin #2 is now: ${state}`;
+          } else {
+            messageDiv.innerText = 'Error: ' + data.error;
+          }
+        } catch (err) {
+          console.error(err);
+          messageDiv.innerText = 'Request failed.';
+        }
+      });
+    </script>
+  </body>
+</html>

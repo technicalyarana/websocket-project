@@ -2,7 +2,7 @@
 <html>
   <head>
     <meta charset="utf-8" />
-    <title>ESP32 Pin #2 Control</title>
+    <title>Pin #2 Toggle</title>
     <style>
       /* बेसिक बॉडी स्टाइल */
       body {
@@ -71,12 +71,12 @@
 
       /* जब इनपुट चेक होगा, तब स्लाइडर का बैकग्राउंड */
       input:checked + .slider {
-        background-color: #2196F3;
+        background-color: #2196f3;
       }
 
       /* जब फ़ोकस में होगा */
       input:focus + .slider {
-        box-shadow: 0 0 1px #2196F3;
+        box-shadow: 0 0 1px #2196f3;
       }
 
       /* स्लाइडर की position */
@@ -94,7 +94,7 @@
 
   <body>
     <div class="container">
-      <h1>Toggle ESP32 Pin #2</h1>
+      <h1>Pin #2 Toggle</h1>
 
       <!-- कस्टम टॉगल स्विच -->
       <label class="toggle-switch">
@@ -106,27 +106,27 @@
     </div>
 
     <script>
-      const toggleSwitch = document.getElementById('toggleSwitch');
-      const messageDiv = document.getElementById('message');
+      const toggleSwitch = document.getElementById("toggleSwitch");
+      const messageDiv = document.getElementById("message");
 
-      toggleSwitch.addEventListener('change', async () => {
-        const state = toggleSwitch.checked ? 'ON' : 'OFF';
+      toggleSwitch.addEventListener("change", async () => {
+        const state = toggleSwitch.checked ? "ON" : "OFF";
         try {
-          const response = await fetch('/api/pin2', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+          // इसी डोमेन में /api/pin2 को कॉल करेंगे
+          const response = await fetch("/api/pin2", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ state }),
           });
-
           const data = await response.json();
           if (data.success) {
             messageDiv.innerText = `Pin #2 is now: ${state}`;
           } else {
-            messageDiv.innerText = 'Error: ' + data.error;
+            messageDiv.innerText = `Error: ${data.error}`;
           }
         } catch (err) {
           console.error(err);
-          messageDiv.innerText = 'Request failed.';
+          messageDiv.innerText = "Request failed.";
         }
       });
     </script>

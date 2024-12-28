@@ -4,40 +4,75 @@ const axios = require('axios');
 const path = require('path');
 
 const app = express();
-
-// यहाँ सबसे IMPORTANT:
-// ESP32_IP = '192.168.31.81'  (जो सीरियल मॉनिटर में दिखा)
-const ESP32_IP = 'websocket-project-sf6n.onrender.com';
-
-// JSON बॉडी पार्स
 app.use(express.json());
 
-// public फोल्डर में index.html वग़ैरह रखेंगे
+// 1) अपनी public फोल्डर को सर्व करें (जहाँ index.html, CSS, JS रखेंगे)
 app.use(express.static(path.join(__dirname, 'public')));
 
-// API रूट (POST /api/pin2)
+// ---------------------------
+// (A) ROUTES FOR PIN ON/OFF
+// ---------------------------
+/**
+ * /pin2/on  और /pin2/off  रूट्स
+ * यहाँ आप असल में हार्डवेयर पिन कंट्रोल की लॉजिक लगा सकते हैं
+ * फ़िलहाल ये सिर्फ़ "Pin #2 ON/OFF" का मैसेज रिटर्न करेंगे.
+ */
+app.get('/pin2/on', (req, res) => {
+  console.log('Pin #2: ON (called /pin2/on)');
+  // यहाँ अगर आप चाहें तो असली हार्डवेयर इंटरैक्शन कर सकते हैं
+  return res.json({ success: true, message: 'Pin #2 is ON' });
+});
+
+app.get('/pin2/off', (req, res) => {
+  console.log('Pin #2: OFF (called /pin2/off)');
+  // यहाँ अगर आप चाहें तो असली हार्डवेयर इंटरैक्शन कर सकते हैं
+  return res.json({ success: true, message: 'Pin #2 is OFF' });
+});
+
+// ---------------------------
+// (B) MAIN API ENDPOINT
+// ---------------------------
+/**
+ * /api/pin2
+ * यह रूट POST रिक्वेस्ट लेता है ("state": "ON" या "OFF"),
+ * और उसी डोमेन पर /pin2/on या /pin2/off को कॉल करता है.
+ * यानी कोई लोकल IP नहीं, सिर्फ़ आपका Render डोमेन इस्तेमाल होगा.
+ */
 app.post('/api/pin2', async (req, res) => {
   try {
-    const { state } = req.body; // "ON" या "OFF"
-    
-    if (state === 'ON') {
-      await axios.get(`http://${ESP32_IP}/pin2/on`);
-    } else {
-      await axios.get(`http://${ESP32_IP}/pin2/off`);
+    const { state } = req.body; // state = "ON" या "OFF"
+    if (!state) {
+      return res.status(400).json({ success: false, message: "State is required!" });
     }
 
-    res.json({ success: true, message: `Pin #2 set to ${state}` });
+    // NOTE: HTTPS का प्रयोग कीजिए, क्योंकि Render पर आपका डोमेन HTTPS है
+    const DOMAIN_URL = 'https://websocket-project-sf6n.onrender.com';
+
+    // /pin2/on या /pin2/off में से किसे कॉल करना है?
+    if (state === 'ON') {
+      await axios.get(`${DOMAIN_URL}/pin2/on`);
+    } else {
+      await axios.get(`${DOMAIN_URL}/pin2/off`);
+    }
+
+    return res.json({ success: true, message: `Pin #2 set to ${state}` });
   } catch (error) {
     console.error('Error in toggling pin:', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    return res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// सर्वर स्टार्ट: port 3000
-const PORT = 3000;
+// ---------------------------
+// (C) HEALTH CHECK OR ROOT
+// ---------------------------
+app.get('/', (req, res) => {
+  res.send('Hello! This is your live server on Render, using only domain routes.');
+});
 
-// आप चाहें तो host '192.168.31.230' भी specify कर सकते हैं,
-// पर ज्यादातर मामलों में '0.0.0.0' पर listen करने से भी काम चल जाता है.
+// ---------------------------
+// (D) START THE SERVER
+// ---------------------------
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
-  console.log(`Node.js API server running at https://websocket-project-sf6n.onrender.com:${PORT}`);
+  console.log(`Server running at: https://websocket-project-sf6n.onrender.com`);
 });

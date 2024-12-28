@@ -7,7 +7,7 @@ const app = express();
 
 // यहाँ सबसे IMPORTANT:
 // ESP32_IP = '192.168.31.81'  (जो सीरियल मॉनिटर में दिखा)
-const ESP32_IP = '192.168.31.81';
+const ESP32_IP = 'websocket-project-sf6n.onrender.com';
 
 // JSON बॉडी पार्स
 app.use(express.json());
@@ -39,5 +39,5 @@ const PORT = 3000;
 // आप चाहें तो host '192.168.31.230' भी specify कर सकते हैं,
 // पर ज्यादातर मामलों में '0.0.0.0' पर listen करने से भी काम चल जाता है.
 app.listen(PORT, () => {
-  console.log(`Node.js API server running at http://192.168.31.230:${PORT}`);
+  console.log(`Node.js API server running at https://websocket-project-sf6n.onrender.com:${PORT}`);
 });

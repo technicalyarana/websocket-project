@@ -4,15 +4,12 @@
     <meta charset="utf-8" />
     <title>Pin #2 Toggle</title>
     <style>
-      /* बेसिक बॉडी स्टाइल */
       body {
         margin: 0;
         padding: 0;
         font-family: Arial, sans-serif;
         background-color: #f0f0f0;
       }
-
-      /* एक कंटेनर जिसे हम थोड़ा सेंटर में रखेंगे */
       .container {
         max-width: 400px;
         margin: 50px auto;
@@ -22,13 +19,10 @@
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         text-align: center;
       }
-
       h1 {
         margin-top: 0;
         margin-bottom: 20px;
       }
-
-      /* कस्टम टॉगल स्विच */
       .toggle-switch {
         position: relative;
         display: inline-block;
@@ -36,15 +30,11 @@
         height: 34px;
         margin-bottom: 20px;
       }
-
-      /* हटा रहे हैं डिफ़ॉल्ट चेकबॉक्स */
       .toggle-switch input {
         opacity: 0;
         width: 0;
         height: 0;
       }
-
-      /* स्लाइडर */
       .slider {
         position: absolute;
         cursor: pointer;
@@ -56,10 +46,9 @@
         transition: 0.4s;
         border-radius: 34px;
       }
-
       .slider:before {
         position: absolute;
-        content: "";
+        content: '';
         height: 26px;
         width: 26px;
         left: 4px;
@@ -68,65 +57,68 @@
         transition: 0.4s;
         border-radius: 50%;
       }
-
-      /* जब इनपुट चेक होगा, तब स्लाइडर का बैकग्राउंड */
       input:checked + .slider {
         background-color: #2196f3;
       }
-
-      /* जब फ़ोकस में होगा */
-      input:focus + .slider {
-        box-shadow: 0 0 1px #2196f3;
-      }
-
-      /* स्लाइडर की position */
       input:checked + .slider:before {
         transform: translateX(26px);
       }
-
-      /* मैसेज */
       #message {
         margin-top: 20px;
         font-weight: bold;
       }
     </style>
   </head>
-
   <body>
     <div class="container">
       <h1>Pin #2 Toggle</h1>
 
-      <!-- कस्टम टॉगल स्विच -->
       <label class="toggle-switch">
         <input type="checkbox" id="toggleSwitch" />
         <span class="slider"></span>
       </label>
 
-      <div id="message"></div>
+      <div id="message">Loading current state...</div>
     </div>
 
     <script>
       const toggleSwitch = document.getElementById("toggleSwitch");
       const messageDiv = document.getElementById("message");
 
+      // WebSocket URL for Render
+      const ws = new WebSocket("wss://websocket-project-sf6n.onrender.com");
+
+      ws.onopen = () => {
+        console.log("WebSocket: Connected to server");
+      };
+
+      ws.onmessage = (event) => {
+        console.log(`WebSocket: Message received - ${event.data}`);
+        if (event.data === "ON") {
+          toggleSwitch.checked = true;
+          messageDiv.innerText = "Pin #2 is ON";
+        } else if (event.data === "OFF") {
+          toggleSwitch.checked = false;
+          messageDiv.innerText = "Pin #2 is OFF";
+        } else {
+          messageDiv.innerText = `Unknown message: ${event.data}`;
+        }
+      };
+
       toggleSwitch.addEventListener("change", async () => {
         const state = toggleSwitch.checked ? "ON" : "OFF";
         try {
-          // इसी डोमेन में /api/pin2 को कॉल करेंगे
           const response = await fetch("/api/pin2", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ state }),
           });
           const data = await response.json();
-          if (data.success) {
-            messageDiv.innerText = `Pin #2 is now: ${state}`;
-          } else {
-            messageDiv.innerText = `Error: ${data.error}`;
+          if (!data.success) {
+            console.error(`Failed to toggle: ${data.message}`);
           }
         } catch (err) {
-          console.error(err);
-          messageDiv.innerText = "Request failed.";
+          console.error("Request failed:", err);
         }
       });
     </script>

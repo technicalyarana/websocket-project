@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
   <head>
-    <meta charset="utf-8" />
-    <title>Pin #2 Toggle</title>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Relay Control Panel</title>
     <style>
       body {
         margin: 0;
@@ -11,24 +12,53 @@
         background-color: #f0f0f0;
       }
       .container {
-        max-width: 400px;
+        max-width: 800px;
         margin: 50px auto;
         background: #ffffff;
         border-radius: 10px;
         padding: 30px;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-        text-align: center;
       }
       h1 {
         margin-top: 0;
         margin-bottom: 20px;
+        text-align: center;
+      }
+      .device-input {
+        margin-bottom: 20px;
+        text-align: center;
+      }
+      .device-input input {
+        padding: 10px;
+        font-size: 16px;
+      }
+      .device-input button {
+        padding: 10px 20px;
+        font-size: 16px;
+        cursor: pointer;
+      }
+      .device {
+        margin-bottom: 20px;
+        padding: 15px;
+        background-color: #f9f9f9;
+        border-radius: 8px;
+      }
+      .device h2 {
+        margin: 0 0 10px;
+      }
+      .relay {
+        display: flex;
+        align-items: center;
+        margin-bottom: 10px;
+      }
+      .relay label {
+        margin-right: 10px;
       }
       .toggle-switch {
         position: relative;
         display: inline-block;
         width: 60px;
         height: 34px;
-        margin-bottom: 20px;
       }
       .toggle-switch input {
         opacity: 0;
@@ -48,7 +78,7 @@
       }
       .slider:before {
         position: absolute;
-        content: '';
+        content: "";
         height: 26px;
         width: 26px;
         left: 4px;
@@ -66,61 +96,148 @@
       #message {
         margin-top: 20px;
         font-weight: bold;
+        text-align: center;
+      }
+      .add-relay {
+        margin-top: 10px;
+        padding: 5px 10px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .add-relay:hover {
+        background-color: #45a049;
       }
     </style>
   </head>
   <body>
     <div class="container">
-      <h1>Pin #2 Toggle</h1>
-
-      <label class="toggle-switch">
-        <input type="checkbox" id="toggleSwitch" />
-        <span class="slider"></span>
-      </label>
-
-      <div id="message">Loading current state...</div>
+      <h1>Relay Control Panel</h1>
+      <div class="device-input">
+        <input type="text" id="deviceIdInput" placeholder="Enter Device ID" />
+        <button id="loadDevice">Load Device</button>
+      </div>
+      <div id="devices"></div>
+      <div id="message">Enter a device ID to load relays.</div>
     </div>
 
     <script>
-      const toggleSwitch = document.getElementById("toggleSwitch");
+      const devicesContainer = document.getElementById("devices");
       const messageDiv = document.getElementById("message");
+      const deviceIdInput = document.getElementById("deviceIdInput");
+      const loadDeviceButton = document.getElementById("loadDevice");
 
-      // WebSocket URL for Render
-      const ws = new WebSocket("wss://websocket-project-sf6n.onrender.com");
+      let currentDeviceId = null;
+      let ws = null;
 
-      ws.onopen = () => {
-        console.log("WebSocket: Connected to server");
-      };
-
-      ws.onmessage = (event) => {
-        console.log(`WebSocket: Message received - ${event.data}`);
-        if (event.data === "ON") {
-          toggleSwitch.checked = true;
-          messageDiv.innerText = "Pin #2 is ON";
-        } else if (event.data === "OFF") {
-          toggleSwitch.checked = false;
-          messageDiv.innerText = "Pin #2 is OFF";
-        } else {
-          messageDiv.innerText = `Unknown message: ${event.data}`;
+      function connectWebSocket(deviceId) {
+        if (ws) {
+          ws.close();
         }
-      };
+        ws = new WebSocket("wss://websocket-project-sf6n.onrender.com");
+        ws.onopen = () => {
+          console.log("WebSocket: Connected to server");
+          ws.send(JSON.stringify({ type: "controller", deviceId }));
+        };
 
-      toggleSwitch.addEventListener("change", async () => {
-        const state = toggleSwitch.checked ? "ON" : "OFF";
-        try {
-          const response = await fetch("/api/pin2", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ state }),
-          });
-          const data = await response.json();
-          if (!data.success) {
-            console.error(`Failed to toggle: ${data.message}`);
+        ws.onmessage = (event) => {
+          console.log(`WebSocket: Message received - ${event.data}`);
+          try {
+            const data = JSON.parse(event.data);
+            if (data.type === "fullState") {
+              updateUI(data.states);
+            } else if (data.type === "state" && data.deviceId === currentDeviceId) {
+              updateRelayState(data.relayNum, data.state);
+            } else if (data.type === "error") {
+              messageDiv.innerText = data.message;
+            } else {
+              messageDiv.innerText = `Unknown message type: ${data.type}`;
+            }
+          } catch (error) {
+            console.error("Error parsing message:", error);
+            messageDiv.innerText = "Error processing message";
           }
-        } catch (err) {
-          console.error("Request failed:", err);
+        };
+
+        ws.onerror = (error) => {
+          console.error("WebSocket error:", error);
+          messageDiv.innerText = "WebSocket connection error";
+        };
+
+        ws.onclose = () => {
+          console.log("WebSocket: Connection closed");
+          messageDiv.innerText = "WebSocket connection closed";
+        };
+      }
+
+      loadDeviceButton.addEventListener("click", () => {
+        const deviceId = deviceIdInput.value.trim();
+        if (deviceId) {
+          currentDeviceId = deviceId;
+          connectWebSocket(deviceId);
+        } else {
+          messageDiv.innerText = "Please enter a valid device ID.";
         }
       });
+
+      function updateUI(states) {
+        devicesContainer.innerHTML = "";
+        const deviceState = states[currentDeviceId] || {};
+        const deviceDiv = document.createElement("div");
+        deviceDiv.className = "device";
+        deviceDiv.innerHTML = `
+          <h2>Device ${currentDeviceId}</h2>
+          <button class="add-relay" data-device="${currentDeviceId}">Add Relay</button>
+        `;
+
+        for (const relayNum in deviceState) {
+          const relayDiv = document.createElement("div");
+          relayDiv.className = "relay";
+          relayDiv.innerHTML = `
+            <label>Relay ${relayNum}</label>
+            <label class="toggle-switch">
+              <input type="checkbox" data-device="${currentDeviceId}" data-relay="${relayNum}" />
+              <span class="slider"></span>
+            </label>
+          `;
+          deviceDiv.appendChild(relayDiv);
+        }
+        devicesContainer.appendChild(deviceDiv);
+
+        const addRelayButton = deviceDiv.querySelector(".add-relay");
+        addRelayButton.addEventListener("click", () => {
+          ws.send(JSON.stringify({ type: "addRelay", deviceId: currentDeviceId }));
+          messageDiv.innerText = "Adding new relay...";
+        });
+
+        document.querySelectorAll(".toggle-switch input").forEach((toggle) => {
+          toggle.addEventListener("change", () => {
+            const deviceId = toggle.dataset.device;
+            const relayNum = toggle.dataset.relay;
+            const state = toggle.checked ? "ON" : "OFF";
+            try {
+              ws.send(JSON.stringify({ type: "set", deviceId, relayNum, state }));
+            } catch (err) {
+              console.error("Failed to send command:", err);
+              messageDiv.innerText = "Error sending command";
+            }
+          });
+          const state = deviceState[toggle.dataset.relay];
+          toggle.checked = state === "ON";
+        });
+        messageDiv.innerText = "Current state loaded";
+      }
+
+      function updateRelayState(relayNum, state) {
+        const toggle = document.querySelector(
+          `.toggle-switch input[data-device="${currentDeviceId}"][data-relay="${relayNum}"]`
+        );
+        if (toggle) {
+          toggle.checked = state === "ON";
+        }
+      }
     </script>
   </body>
 </html>

@@ -1,5 +1,3 @@
-
-
 const express = require('express');
 const WebSocket = require('ws');
 const path = require('path');
@@ -7,205 +5,144 @@ const path = require('path');
 const app = express();
 app.use(express.json());
 
-// ---------------------------
-// (A) Static Files
-// ---------------------------
+// Serve static files from 'public' directory
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------------------------
-// (B) REST API Routes
-// ---------------------------
-let pinState = 'OFF'; // Global pin state
-const clients = new Set(); // Track WebSocket clients
+// In-memory storage for device states
+const deviceStates = {};
+const deviceClients = new Map(); // deviceId -> WebSocket
+const controllerClients = new Map(); // WebSocket -> { deviceId }
 
-// Handle REST API routes
-app.get('/pin2/on', (req, res) => {
-  console.log('REST API: Pin #2 ON');
-  pinState = 'ON';
-  broadcastState(pinState);
-  return res.json({ success: true, message: 'Pin #2 is ON' });
-});
-
-app.get('/pin2/off', (req, res) => {
-  console.log('REST API: Pin #2 OFF');
-  pinState = 'OFF';
-  broadcastState(pinState);
-  return res.json({ success: true, message: 'Pin #2 is OFF' });
-});
-
-app.post('/api/pin2', (req, res) => {
-  const { state } = req.body;
-  if (state === 'ON' || state === 'OFF') {
-    console.log(`REST API: Pin #2 state set to ${state}`);
-    pinState = state;
-    broadcastState(pinState);
-    return res.json({ success: true, message: `Pin #2 set to ${state}` });
+// Function to set relay state and notify clients
+function setRelayState(deviceId, relayNum, state) {
+  if (!deviceStates[deviceId]) {
+    deviceStates[deviceId] = {};
   }
-  return res.status(400).json({ success: false, message: 'Invalid state' });
-});
-
-// ---------------------------
-// (C) WebSocket Server
-// ---------------------------
-const wss = new WebSocket.Server({ noServer: true });
-
-function broadcastState(state) {
-  console.log(`Broadcasting state: ${state}`);
-  for (const client of clients) {
-    if (client.readyState === WebSocket.OPEN) {
-      client.send(state);
+  deviceStates[deviceId][relayNum] = state;
+  if (deviceClients.has(deviceId)) {
+    deviceClients.get(deviceId).send(JSON.stringify({ type: 'set', relayNum, state }));
+  }
+  for (const [client, info] of controllerClients) {
+    if (client.readyState === WebSocket.OPEN && info.deviceId === deviceId) {
+      client.send(JSON.stringify({ type: 'state', deviceId, relayNum, state }));
     }
   }
 }
 
+// Function to add a new relay to a device
+function addRelay(deviceId) {
+  if (!deviceStates[deviceId]) {
+    deviceStates[deviceId] = {};
+  }
+  const currentRelays = Object.keys(deviceStates[deviceId]).length;
+  const newRelayNum = currentRelays + 1;
+  deviceStates[deviceId][newRelayNum] = 'OFF';
+  for (const [client, info] of controllerClients) {
+    if (client.readyState === WebSocket.OPEN && info.deviceId === deviceId) {
+      client.send(JSON.stringify({ type: 'fullState', states: { [deviceId]: deviceStates[deviceId] } }));
+    }
+  }
+  if (deviceClients.has(deviceId)) {
+    deviceClients.get(deviceId).send(JSON.stringify({ type: 'init', states: deviceStates[deviceId] }));
+  }
+  return true;
+}
+
+// REST API to turn relay ON
+app.get('/device/:deviceId/relay/:relayNum/on', (req, res) => {
+  const { deviceId, relayNum } = req.params;
+  setRelayState(deviceId, relayNum, 'ON');
+  res.json({ success: true, message: `Device ${deviceId} relay ${relayNum} is ON` });
+});
+
+// REST API to turn relay OFF
+app.get('/device/:deviceId/relay/:relayNum/off', (req, res) => {
+  const { deviceId, relayNum } = req.params;
+  setRelayState(deviceId, relayNum, 'OFF');
+  res.json({ success: true, message: `Device ${deviceId} relay ${relayNum} is OFF` });
+});
+
+// REST API to set relay state via POST
+app.post('/api/device/:deviceId/relay/:relayNum', (req, res) => {
+  const { deviceId, relayNum } = req.params;
+  const { state } = req.body;
+  if (state !== 'ON' && state !== 'OFF') {
+    return res.status(400).json({ success: false, message: 'Invalid state' });
+  }
+  setRelayState(deviceId, relayNum, state);
+  res.json({ success: true, message: `Device ${deviceId} relay ${relayNum} set to ${state}` });
+});
+
+// WebSocket Server
+const wss = new WebSocket.Server({ noServer: true });
+
 wss.on('connection', (ws) => {
   console.log('WebSocket: New connection established');
-  clients.add(ws);
-
-  // Send current pin state to the newly connected client
-  ws.send(pinState);
+  ws.type = null;
 
   ws.on('message', (message) => {
-    const trimmedMessage = message.toString().trim();
-    console.log(`WebSocket: Message received - "${trimmedMessage}"`);
-
-    if (trimmedMessage === 'ON') {
-      console.log('WebSocket: Pin #2 ON');
-      pinState = 'ON';
-      broadcastState(pinState);
-    } else if (trimmedMessage === 'OFF') {
-      console.log('WebSocket: Pin #2 OFF');
-      pinState = 'OFF';
-      broadcastState(pinState);
-    } else {
-      console.log('WebSocket: Unknown command received');
-      ws.send('ERROR: Unknown command');
+    try {
+      const data = JSON.parse(message);
+      if (ws.type === null) {
+        if (data.type === 'device' && data.deviceId) {
+          ws.type = 'device';
+          ws.deviceId = data.deviceId;
+          if (deviceClients.has(data.deviceId)) {
+            deviceClients.get(data.deviceId).close();
+          }
+          deviceClients.set(data.deviceId, ws);
+          if (!deviceStates[data.deviceId]) {
+            deviceStates[data.deviceId] = {};
+          }
+          ws.send(JSON.stringify({ type: 'init', states: deviceStates[data.deviceId] }));
+        } else if (data.type === 'controller' && data.deviceId) {
+          ws.type = 'controller';
+          controllerClients.set(ws, { deviceId: data.deviceId });
+          if (!deviceStates[data.deviceId]) {
+            deviceStates[data.deviceId] = {};
+          }
+          const state = deviceStates[data.deviceId];
+          ws.send(JSON.stringify({ type: 'fullState', states: { [data.deviceId]: state } }));
+        } else {
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid identification' }));
+          ws.close();
+        }
+      } else if (ws.type === 'controller') {
+        if (data.type === 'set' && data.deviceId && data.relayNum && (data.state === 'ON' || data.state === 'OFF')) {
+          setRelayState(data.deviceId, data.relayNum, data.state);
+        } else if (data.type === 'addRelay' && data.deviceId) {
+          addRelay(data.deviceId);
+        } else {
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid command' }));
+        }
+      } else if (ws.type === 'device') {
+        console.log(`Received message from device ${ws.deviceId}: ${message}`);
+      }
+    } catch (error) {
+      console.error('Error parsing message:', error);
+      ws.send(JSON.stringify({ type: 'error', message: 'Invalid message format' }));
     }
   });
 
   ws.on('close', () => {
     console.log('WebSocket: Connection closed');
-    clients.delete(ws);
+    if (ws.type === 'device') {
+      deviceClients.delete(ws.deviceId);
+    } else if (ws.type === 'controller') {
+      controllerClients.delete(ws);
+    }
   });
 });
 
-// ---------------------------
-// (D) Live Server for HTTPS
-// ---------------------------
+// Start HTTP Server
 const PORT = process.env.PORT || 3000;
-
-// HTTP Server
 const server = app.listen(PORT, () => {
   console.log(`HTTP server running at: https://websocket-project-sf6n.onrender.com`);
 });
 
-// WebSocket Upgrade for HTTPS
+// Handle WebSocket upgrades
 server.on('upgrade', (req, socket, head) => {
   wss.handleUpgrade(req, socket, head, (ws) => {
     wss.emit('connection', ws, req);
   });
 });
-
-
-
-
-
-
-
-// const express = require('express');
-// const WebSocket = require('ws');
-// const path = require('path');
-
-// const app = express();
-// app.use(express.json());
-
-// // ---------------------------
-// // (A) Static Files
-// // ---------------------------
-// app.use(express.static(path.join(__dirname, 'public')));
-
-// // ---------------------------
-// // (B) REST API Routes
-// // ---------------------------
-// let pinState = 'OFF'; // Track pin state globally
-// const clients = new Set(); // Track WebSocket clients
-
-// app.get('/pin2/on', (req, res) => {
-//   console.log('REST API: Pin #2 ON');
-//   pinState = 'ON';
-//   broadcastState(pinState); // Broadcast to WebSocket clients
-//   return res.json({ success: true, message: 'Pin #2 is ON' });
-// });
-
-// app.get('/pin2/off', (req, res) => {
-//   console.log('REST API: Pin #2 OFF');
-//   pinState = 'OFF';
-//   broadcastState(pinState); // Broadcast to WebSocket clients
-//   return res.json({ success: true, message: 'Pin #2 is OFF' });
-// });
-
-// app.post('/api/pin2', (req, res) => {
-//   const { state } = req.body;
-//   if (state === 'ON' || state === 'OFF') {
-//     console.log(`REST API: Pin #2 state set to ${state}`);
-//     pinState = state;
-//     broadcastState(pinState); // Broadcast to WebSocket clients
-//     return res.json({ success: true, message: `Pin #2 set to ${state}` });
-//   }
-//   return res.status(400).json({ success: false, message: 'Invalid state' });
-// });
-
-// // ---------------------------
-// // (C) WebSocket Server
-// // ---------------------------
-// const wss = new WebSocket.Server({ port: 8080 });
-
-// function broadcastState(state) {
-//   console.log(`Broadcasting state: ${state}`);
-//   for (const client of clients) {
-//     if (client.readyState === WebSocket.OPEN) {
-//       client.send(state);
-//     }
-//   }
-// }
-
-// wss.on('connection', (ws) => {
-//   console.log('WebSocket: New connection established');
-//   clients.add(ws);
-
-//   // Send the current state to the newly connected client
-//   ws.send(pinState);
-
-//   ws.on('message', (message) => {
-//     const trimmedMessage = message.toString().trim();
-//     console.log(`Raw WebSocket message received: "${message}"`);
-//     console.log(`Trimmed WebSocket message: "${trimmedMessage}"`);
-
-//     if (trimmedMessage === 'ON') {
-//       console.log('WebSocket: Pin #2 ON');
-//       pinState = 'ON';
-//       broadcastState(pinState);
-//     } else if (trimmedMessage === 'OFF') {
-//       console.log('WebSocket: Pin #2 OFF');
-//       pinState = 'OFF';
-//       broadcastState(pinState);
-//     } else {
-//       console.log('WebSocket: Unknown command received');
-//       ws.send('ERROR');
-//     }
-//   });
-
-//   ws.on('close', () => {
-//     console.log('WebSocket: Connection closed');
-//     clients.delete(ws);
-//   });
-// });
-
-// // ---------------------------
-// // (D) HTTP Server Setup
-// // ---------------------------
-// const PORT = 3000;
-// app.listen(PORT, '192.168.31.230', () => {
-//   console.log(`HTTP server running at: http://192.168.31.230:${PORT}`);
-//   console.log(`WebSocket server running at: ws://192.168.31.230:8080`);
-// });
